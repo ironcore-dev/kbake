@@ -1,0 +1,14 @@
+# built binaries
+/kbake
+/dist/
+# committed build artifacts that landed under the package dir (regenerable)
+internal/build/dist/
+/work/
+
+# go workspace artifacts
+*.test
+.idea/
+CONTEXT.md
+/bin
+tmp/
+cover.out

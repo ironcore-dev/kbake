@@ -1,0 +1,43 @@
+# vim: syntax=yaml:
+from: git://git.kernel.org/pub/scm/linux/kernel/git/stable/linux@v7.1
+
+options:
+  enable:
+  - BLK_DEV
+  - PCI
+  - PCI_DOMAINS_GENERIC
+  - EFI
+  - EFI_STUB
+  - ACPI
+  - ACPI_GENERIC_GSI
+  - ARM_GIC_V3
+  - ARM_ARCH_TIMER
+  - SERIAL_AMBA_PL011
+  - SERIAL_AMBA_PL011_CONSOLE
+  - NET
+  - INET
+  - IPV6
+  - UNIX
+  - NETDEVICES
+  - BLK_DEV_INITRD
+  - DEVTMPFS
+  - DEVTMPFS_MOUNT
+  - PROC_FS
+  - SYSFS
+  - TMPFS
+  - PRINTK
+  - TTY
+  - BPF
+
+modules:
+  builtin:
+  - FAILOVER
+  - NET_FAILOVER
+  - VIRTIO
+  - VIRTIO_NET
+  - VIRTIO_BLK
+  - HW_RANDOM
+  - HW_RANDOM_VIRTIO
+  - PCI_HOST_GENERIC
+  - PACKET
+  - CRYPTO_RNG
