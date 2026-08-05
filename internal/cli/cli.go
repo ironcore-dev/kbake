@@ -27,6 +27,9 @@ import (
 
 	"github.com/ironcore-dev/kbake/internal/cli/get"
 	"github.com/ironcore-dev/kbake/internal/cli/image"
+	"github.com/ironcore-dev/kbake/internal/cli/pull"
+	"github.com/ironcore-dev/kbake/internal/cli/push"
+	"github.com/ironcore-dev/kbake/internal/cli/tag"
 	"github.com/ironcore-dev/kbake/internal/ociauth"
 
 	"github.com/spf13/cobra"
@@ -88,6 +91,9 @@ full specification.`,
 		build.Command(localGetter(&localDir), stdout, stderr),
 		get.Command(localGetter(&localDir), ociauth.NewRepository, stdout, stderr),
 		image.Command(localGetter(&localDir), stdout, stderr),
+		pull.Command(localGetter(&localDir), ociauth.NewRepository, stdout, stderr),
+		push.Command(localGetter(&localDir), ociauth.NewRepository, stdout, stderr),
+		tag.Command(localGetter(&localDir), stdout, stderr),
 		newVersionCmd(stdout),
 	)
 
