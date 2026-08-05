@@ -4,6 +4,7 @@
 package build
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/ironcore-dev/kbake/internal/source"
 	"github.com/ironcore-dev/kbake/internal/targz"
 	"github.com/ironcore-dev/kbake/internal/xos"
+	"oras.land/oras-go/v2/content"
 
 	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
@@ -452,7 +454,11 @@ func (b *Builder) pushConfig(ctx context.Context, arch string, cfg Config) (ocis
 		return ocispec.Descriptor{}, fmt.Errorf("marshal image config: %w", err)
 	}
 
-	return oras.PushBytes(ctx, b.local, image.MediaTypeConfig, data)
+	desc := content.NewDescriptorFromBytes(image.MediaTypeConfig, data)
+	if err := b.local.Push(ctx, desc, bytes.NewReader(data)); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
+		return ocispec.Descriptor{}, fmt.Errorf("push config: %w", err)
+	}
+	return desc, nil
 }
 
 func (b *Builder) push(ctx context.Context, arch, dir string, cfg Config, kernelBinary, modules string) (desc ocispec.Descriptor, retErr error) {

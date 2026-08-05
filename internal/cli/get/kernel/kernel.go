@@ -12,6 +12,7 @@ import (
 	"runtime"
 
 	"github.com/ironcore-dev/kbake/internal/cli/clierr"
+	"github.com/ironcore-dev/kbake/internal/cli/common"
 	"github.com/ironcore-dev/kbake/internal/image"
 	"github.com/ironcore-dev/kbake/internal/xoras/images"
 
@@ -22,18 +23,11 @@ import (
 	"oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/errdef"
 	"oras.land/oras-go/v2/registry"
-	"oras.land/oras-go/v2/registry/remote"
 )
-
-// NewRepositoryFunc creates an authenticated registry handle for the given
-// reference — the composition root (the CLI) decides how credentials are
-// sourced, so this command package never learns about docker configs or
-// credential helpers.
-type NewRepositoryFunc func(ref registry.Reference) (*remote.Repository, error)
 
 func Command(
 	getLocal func() (*oci.Store, error),
-	newRepo NewRepositoryFunc,
+	newRepo common.NewRepositoryFunc,
 	stdout, stderr io.Writer,
 ) *cobra.Command {
 	var (
@@ -43,8 +37,9 @@ func Command(
 	)
 
 	cmd := &cobra.Command{
-		Use:  "kernel IMAGE",
-		Args: cobra.ExactArgs(1),
+		Use:   "kernel IMAGE",
+		Short: "Get a kbake image's kernel",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 
@@ -66,7 +61,7 @@ func Command(
 	return cmd
 }
 
-func Run(ctx context.Context, stdout io.Writer, local oras.Target, newRepo NewRepositoryFunc, ref, arch, output string, plainHTTP bool) error {
+func Run(ctx context.Context, stdout io.Writer, local oras.Target, newRepo common.NewRepositoryFunc, ref, arch, output string, plainHTTP bool) error {
 	matchPlatform := images.MatchPlatform(&ocispec.Platform{OS: "linux", Architecture: arch})
 
 	p, err := image.Resolve(ctx, local, ref, image.ResolveOptions{

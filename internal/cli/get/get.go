@@ -6,6 +6,7 @@ package get
 import (
 	"io"
 
+	"github.com/ironcore-dev/kbake/internal/cli/common"
 	"github.com/ironcore-dev/kbake/internal/cli/get/kernel"
 
 	"github.com/spf13/cobra"
@@ -14,11 +15,12 @@ import (
 
 func Command(
 	getLocal func() (*oci.Store, error),
-	newRepo kernel.NewRepositoryFunc,
+	newRepo common.NewRepositoryFunc,
 	stdout, stderr io.Writer,
 ) *cobra.Command {
 	cmd := &cobra.Command{
-		Use: "get",
+		Use:   "get",
+		Short: "Get kbake artifacts",
 	}
 
 	cmd.AddCommand(

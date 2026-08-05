@@ -16,6 +16,8 @@ import (
 
 func b64(s string) string { return base64.StdEncoding.EncodeToString([]byte(s)) }
 
+const staticUsername = "static"
+
 func TestResolveStaticAuth(t *testing.T) {
 	cfg := &dockerConfig{
 		Auths: map[string]dockerAuthEntry{
@@ -93,6 +95,23 @@ func writeFakeHelper(t *testing.T, suffix, username, secret string) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
+// writeFailingHelper installs a docker-credential-<suffix> binary that
+// answers the protocol's `get` by printing msg to stdout and exiting 1 —
+// the error convention of real helpers (see credentials.Serve).
+func writeFailingHelper(t *testing.T, suffix, msg string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("helper protocol shells out; test uses a sh script")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '" + msg + "'\nexit 1\n"
+	path := filepath.Join(dir, "docker-credential-"+suffix)
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func TestResolveHelperCredsStore(t *testing.T) {
 	writeFakeHelper(t, "fakestore", "huser", "hsecret")
 	cfg := &dockerConfig{CredsStore: "fakestore"}
@@ -150,14 +169,78 @@ func TestResolveHelperPrecedence(t *testing.T) {
 // A static entry is used only when no helper matches.
 func TestResolveStaticAfterHelpers(t *testing.T) {
 	cfg := &dockerConfig{
-		Auths: map[string]dockerAuthEntry{"ghcr.io": {Auth: b64("static:entry")}},
+		Auths: map[string]dockerAuthEntry{"ghcr.io": {Auth: b64(staticUsername + ":entry")}},
 	}
 	cred, err := cfg.resolve("ghcr.io")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cred.Username != "static" {
+	if cred.Username != staticUsername {
 		t.Errorf("got %+v", cred)
+	}
+}
+
+// Docker Desktop registers a global credsStore (docker-credential-desktop);
+// without a `docker login` for the registry, the helper reports "credentials
+// not found". Like docker/cli, that must mean anonymous access, not a failed
+// pull of a public image.
+func TestResolveHelperNotFoundIsAnonymous(t *testing.T) {
+	writeFailingHelper(t, "notfound", "credentials not found in native keychain")
+	cfg := &dockerConfig{CredsStore: "notfound"}
+
+	cred, err := cfg.resolve("ghcr.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred != (auth.Credential{}) {
+		t.Errorf("expected zero credential, got %+v", cred)
+	}
+}
+
+// A helper having no entry does not mask a static auths entry — docker/cli's
+// native store falls back to the plain-text file store the same way.
+func TestResolveHelperNotFoundFallsBackToStatic(t *testing.T) {
+	writeFailingHelper(t, "notfound", "credentials not found in native keychain")
+	cfg := &dockerConfig{
+		CredsStore: "notfound",
+		Auths:      map[string]dockerAuthEntry{"ghcr.io": {Auth: b64(staticUsername + ":creds")}},
+	}
+
+	cred, err := cfg.resolve("ghcr.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.Username != staticUsername || cred.Password != "creds" {
+		t.Errorf("helper miss should fall back to static auths entry, got %+v", cred)
+	}
+}
+
+// Same fallback applies when the per-registry helper (not the global
+// credsStore) misses.
+func TestResolvePerRegistryHelperNotFoundFallsBackToStatic(t *testing.T) {
+	writeFailingHelper(t, "notfound", "credentials not found in native keychain")
+	cfg := &dockerConfig{
+		CredHelpers: map[string]string{"ghcr.io": "notfound"},
+		Auths:       map[string]dockerAuthEntry{"ghcr.io": {Auth: b64(staticUsername + ":creds")}},
+	}
+
+	cred, err := cfg.resolve("ghcr.io")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.Username != staticUsername || cred.Password != "creds" {
+		t.Errorf("per-registry helper miss should fall back to static auths entry, got %+v", cred)
+	}
+}
+
+// Other helper failures (helper broken, keychain locked, ...) stay visible
+// as errors — only the standard not-found outcome is benign.
+func TestResolveHelperErrorSurfaces(t *testing.T) {
+	writeFailingHelper(t, "broken", "some other helper failure")
+	cfg := &dockerConfig{CredsStore: "broken"}
+
+	if _, err := cfg.resolve("ghcr.io"); err == nil {
+		t.Fatal("expected helper failure to surface")
 	}
 }
 

@@ -28,6 +28,7 @@ import (
 	"sync"
 
 	helperclient "github.com/docker/docker-credential-helpers/client"
+	helpercreds "github.com/docker/docker-credential-helpers/credentials"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 	"oras.land/oras-go/v2/registry/remote/auth"
@@ -101,23 +102,34 @@ func (e dockerAuthEntry) credential() (auth.Credential, error) {
 
 // resolve mirrors docker/cli's GetAuthConfig precedence: a per-registry
 // helper (credHelpers), then the global helper (credsStore), then a static
-// auths entry. The zero Credential means "no credentials configured" — the
+// auths entry. A helper reporting "credentials not found" (e.g.
+// docker-credential-desktop on a machine that never logged in to the
+// registry) is not an error — like docker/cli, resolution moves on to the
+// next source. The zero Credential means "no credentials configured" — the
 // request proceeds anonymously.
 func (c *dockerConfig) resolve(hostport string) (auth.Credential, error) {
 	key := authServerKey(hostport)
 	host := normalizeHost(hostport)
 
 	if suffix, ok := c.CredHelpers[key]; ok {
-		return fromHelper(suffix, key)
-	}
-	if key != host {
+		cred, err := fromHelper(suffix, key)
+		if !errors.Is(err, errNotInStore) {
+			return cred, err
+		}
+	} else if key != host {
 		// Some configs key hub helpers by bare host name instead.
 		if suffix, ok := c.CredHelpers[host]; ok {
-			return fromHelper(suffix, host)
+			cred, err := fromHelper(suffix, host)
+			if !errors.Is(err, errNotInStore) {
+				return cred, err
+			}
 		}
 	}
 	if c.CredsStore != "" {
-		return fromHelper(c.CredsStore, key)
+		cred, err := fromHelper(c.CredsStore, key)
+		if !errors.Is(err, errNotInStore) {
+			return cred, err
+		}
 	}
 	if entry, ok := c.Auths[key]; ok {
 		return entry.credential()
@@ -130,6 +142,13 @@ func (c *dockerConfig) resolve(hostport string) (auth.Credential, error) {
 	return auth.Credential{}, nil
 }
 
+// errNotInStore marks a credential helper's standard "no credentials for
+// this server" outcome. docker/cli treats it as "no credentials configured"
+// and proceeds anonymously; kbake mirrors that so a global credsStore (e.g.
+// Docker Desktop's docker-credential-desktop) cannot break anonymous pulls
+// of public images for users who never ran docker login.
+var errNotInStore = errors.New("credentials not found in credential store")
+
 // fromHelper invokes docker-credential-<suffix> via the documented helper
 // protocol. The suffix is validated so a crafted config file cannot turn the
 // helper name into an arbitrary path.
@@ -140,6 +159,9 @@ func fromHelper(suffix, serverURL string) (auth.Credential, error) {
 	prog := helperclient.NewShellProgramFunc("docker-credential-" + suffix)
 	creds, err := helperclient.Get(prog, serverURL)
 	if err != nil {
+		if helpercreds.IsErrCredentialsNotFound(err) {
+			return auth.Credential{}, errNotInStore
+		}
 		return auth.Credential{}, fmt.Errorf("docker-credential-%s get %s: %w", suffix, serverURL, err)
 	}
 	// "<token>" is the helper protocol's sentinel for an identity token.
