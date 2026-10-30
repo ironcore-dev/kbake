@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/ironcore-dev/kbake/internal/expr"
@@ -21,7 +22,7 @@ func evalAddFile(t *testing.T, contextDir, treeDir, src, dst string) error {
 	b := &Builder{}
 	return b.evalAction(context.Background(), contextDir, expr.Scope{}, &kernelfile.Action{
 		AddFile: &kernelfile.AddFile{Src: src, Dst: dst},
-	}, treeDir, Config{})
+	}, treeDir, &buildSpec{config: Config{}})
 }
 
 func evalDeleteFile(t *testing.T, treeDir, path string) error {
@@ -29,7 +30,7 @@ func evalDeleteFile(t *testing.T, treeDir, path string) error {
 	b := &Builder{}
 	return b.evalAction(context.Background(), t.TempDir(), expr.Scope{}, &kernelfile.Action{
 		DeleteFile: &kernelfile.DeleteFile{Path: path},
-	}, treeDir, Config{})
+	}, treeDir, &buildSpec{config: Config{}})
 }
 
 func writeFile(t *testing.T, path string, mode os.FileMode, content string) {
@@ -175,6 +176,59 @@ func TestEvalActionDeleteFileRejections(t *testing.T) {
 			// The tree itself must survive (empty path must not become RemoveAll(treeDir)).
 			if _, err := os.Stat(filepath.Join(treeDir, "keep.c")); err != nil {
 				t.Errorf("tree damaged by rejected deleteFile: %v", err)
+			}
+		})
+	}
+}
+
+func TestEvalActionAddCompilerFlags(t *testing.T) {
+	b := &Builder{}
+	s := expr.Scope{"arch": "amd64"}
+	spec := &buildSpec{config: Config{}}
+
+	actions := []kernelfile.Actions{
+		{
+			If: "${{ arch == 'amd64' }}",
+			Actions: []kernelfile.Action{
+				{AddCompilerFlags: &kernelfile.AddCompilerFlags{Flags: []string{"-march=x86-64"}}},
+				{AddCompilerFlags: &kernelfile.AddCompilerFlags{Flags: []string{"-DARCH_$arch", "-O2"}}},
+			},
+		},
+		{
+			If: "${{ arch == 'arm64' }}",
+			Actions: []kernelfile.Action{
+				{AddCompilerFlags: &kernelfile.AddCompilerFlags{Flags: []string{"-mbranch-protection=none"}}},
+			},
+		},
+	}
+	for i := range actions {
+		if err := b.evalActions(context.Background(), t.TempDir(), s, &actions[i], t.TempDir(), spec); err != nil {
+			t.Fatalf("evalActions[%d]: %v", i, err)
+		}
+	}
+
+	want := []string{"-march=x86-64", "-DARCH_amd64", "-O2"}
+	if !slices.Equal(spec.compilerFlags, want) {
+		t.Errorf("compilerFlags = %q, want %q", spec.compilerFlags, want)
+	}
+	if len(spec.config) != 0 {
+		t.Errorf("config = %v, want empty", spec.config)
+	}
+}
+
+func TestEvalActionAddCompilerFlagsRejections(t *testing.T) {
+	for _, flag := range []string{"", "-march=x86-64 -O2", "-DFOO=\tbar"} {
+		t.Run("flag="+flag, func(t *testing.T) {
+			b := &Builder{}
+			spec := &buildSpec{config: Config{}}
+			err := b.evalAction(context.Background(), t.TempDir(), expr.Scope{}, &kernelfile.Action{
+				AddCompilerFlags: &kernelfile.AddCompilerFlags{Flags: []string{flag}},
+			}, t.TempDir(), spec)
+			if err == nil {
+				t.Errorf("addCompilerFlags flag=%q: expected error, got nil", flag)
+			}
+			if len(spec.compilerFlags) != 0 {
+				t.Errorf("compilerFlags = %q, want empty after rejection", spec.compilerFlags)
 			}
 		})
 	}

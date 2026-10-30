@@ -149,9 +149,21 @@ actions:
 ```
 
 Available actions: `setConfig` (value `Yes` / `No` / `Module`),
-`deleteConfig`, `addFile`, `deleteFile`. File `src` paths are resolved inside
-the build context, `dst`/`path` inside the kernel tree; both are protected
-against escaping their respective roots.
+`deleteConfig`, `addFile`, `deleteFile`, `addCompilerFlags`. File `src` paths
+are resolved inside the build context, `dst`/`path` inside the kernel tree;
+both are protected against escaping their respective roots.
+
+`addCompilerFlags` appends flags to the compiler command (`CC`) of the compile
+phase. Unlike `KCFLAGS`, this also reaches parts of the tree that set their own
+`KBUILD_CFLAGS`, such as the x86 EFI stub and decompressor, which otherwise
+inherit the compiler's default `-march`:
+
+```yaml
+actions:
+- if: ${{ arch == 'amd64' }}
+  actions:
+  - addCompilerFlags: { flags: [-march=x86-64] }
+```
 
 ### Expressions
 

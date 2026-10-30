@@ -23,6 +23,9 @@ type CompileOptions struct {
 	// CCacheDir, when non-empty, enables ccache for the compile phase and
 	// points ccache at this directory (CCACHE_DIR). Empty = ccache disabled.
 	CCacheDir string
+	// CompilerFlags are appended to CC, so they reach every compile unit,
+	// including those that reset KBUILD_CFLAGS (and thus ignore KCFLAGS).
+	CompilerFlags []string
 }
 
 type MakeRunner interface {
@@ -74,6 +77,24 @@ func crossCompilePrefix(info kernelmake.Info, arch string) string {
 		return ""
 	}
 	return info.CrossCompile
+}
+
+// ccValue returns the CC= value to pass to make, or "" to leave kbuild's
+// default ($(CROSS_COMPILE)gcc). CC is only overridden when needed: to wrap
+// the compiler in ccache — native (empty prefix) -> "ccache gcc", cross ->
+// "ccache <prefix>gcc"; CROSS_COMPILE still prefixes the binutils AS/LD/AR/NM
+// — and/or to append compiler flags.
+func ccValue(prefix string, ccache bool, flags []string) string {
+	if !ccache && len(flags) == 0 {
+		return ""
+	}
+	var words []string
+	if ccache {
+		words = append(words, "ccache")
+	}
+	words = append(words, prefix+"gcc")
+	words = append(words, flags...)
+	return strings.Join(words, " ")
 }
 
 func newDefaultRunner(opts defaultRunnerOptions) (*defaultRunner, error) {
@@ -190,10 +211,9 @@ func (d *defaultRunner) Compile(ctx context.Context, dir string, arch string, op
 			"CCACHE_BASEDIR="+dir,
 			"CCACHE_NOHASHDIR=1",
 		)
-		// CC is the ccache-wrapped gcc: native (empty prefix) -> "ccache gcc",
-		// cross -> "ccache <prefix>gcc". CROSS_COMPILE still prefixes the
-		// binutils AS/LD/AR/NM.
-		runArgs = append(runArgs, "CC=ccache "+prefix+"gcc")
+	}
+	if cc := ccValue(prefix, opts.CCacheDir != "", opts.CompilerFlags); cc != "" {
+		runArgs = append(runArgs, "CC="+cc)
 	}
 
 	switch {
