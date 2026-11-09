@@ -36,8 +36,8 @@ import (
 
 type Config map[string]string
 
-// buildSpec is what evaluating a Kernelfile's actions yields for one arch.
-type buildSpec struct {
+// BuildSpec is what evaluating a Kernelfile's actions yields for one arch.
+type BuildSpec struct {
 	config Config
 	// compilerFlags are appended to CC for the compile phase.
 	compilerFlags []string
@@ -240,7 +240,7 @@ func toConfigValue(kValue kernelfile.ConfigValue) (string, error) {
 	}
 }
 
-func (b *Builder) evalAction(_ context.Context, contextDir string, s expr.Scope, a *kernelfile.Action, dir string, spec *buildSpec) error {
+func (b *Builder) evalAction(_ context.Context, contextDir string, s expr.Scope, a *kernelfile.Action, dir string, spec *BuildSpec) error {
 	if cond := a.If; cond != "" {
 		ok, err := expr.EvalBool(cond, s)
 		if err != nil {
@@ -328,7 +328,7 @@ func (b *Builder) evalAction(_ context.Context, contextDir string, s expr.Scope,
 	}
 }
 
-func (b *Builder) evalActions(ctx context.Context, contextDir string, s expr.Scope, actions *kernelfile.Actions, dir string, spec *buildSpec) error {
+func (b *Builder) evalActions(ctx context.Context, contextDir string, s expr.Scope, actions *kernelfile.Actions, dir string, spec *BuildSpec) error {
 	if cond := actions.If; cond != "" {
 		ok, err := expr.EvalBool(cond, s)
 		if err != nil {
@@ -362,7 +362,7 @@ func (b *Builder) fetchGit(ctx context.Context, treeDir, gitRef string) error {
 	return nil
 }
 
-func (b *Builder) buildTree(ctx context.Context, f *kernelfile.Kernelfile, contextDir, arch, treeDir string) (*buildSpec, error) {
+func (b *Builder) buildTree(ctx context.Context, f *kernelfile.Kernelfile, contextDir, arch, treeDir string) (*BuildSpec, error) {
 	rep := progress.ReporterFromContext(ctx)
 
 	rep.Step("From")
@@ -384,7 +384,7 @@ func (b *Builder) buildTree(ctx context.Context, f *kernelfile.Kernelfile, conte
 	}
 
 	s := expr.Scope{"arch": arch}
-	spec := &buildSpec{config: make(Config)}
+	spec := &BuildSpec{config: make(Config)}
 	rep.Step("Evaluate actions")
 	err = func() error {
 		for i, actions := range effectiveActions(f) {
@@ -402,7 +402,7 @@ func (b *Builder) buildTree(ctx context.Context, f *kernelfile.Kernelfile, conte
 	return spec, nil
 }
 
-func (b *Builder) make(ctx context.Context, arch, treeDir, outDir string, spec *buildSpec) (kernelBinary, modules string, retErr error) {
+func (b *Builder) make(ctx context.Context, arch, treeDir, outDir string, spec *BuildSpec) (kernelBinary, modules string, retErr error) {
 	rep := progress.ReporterFromContext(ctx)
 
 	rep.Step(fmt.Sprintf("make %s", arch))

@@ -22,7 +22,7 @@ func evalAddFile(t *testing.T, contextDir, treeDir, src, dst string) error {
 	b := &Builder{}
 	return b.evalAction(context.Background(), contextDir, expr.Scope{}, &kernelfile.Action{
 		AddFile: &kernelfile.AddFile{Src: src, Dst: dst},
-	}, treeDir, &buildSpec{config: Config{}})
+	}, treeDir, &BuildSpec{config: Config{}})
 }
 
 func evalDeleteFile(t *testing.T, treeDir, path string) error {
@@ -30,7 +30,7 @@ func evalDeleteFile(t *testing.T, treeDir, path string) error {
 	b := &Builder{}
 	return b.evalAction(context.Background(), t.TempDir(), expr.Scope{}, &kernelfile.Action{
 		DeleteFile: &kernelfile.DeleteFile{Path: path},
-	}, treeDir, &buildSpec{config: Config{}})
+	}, treeDir, &BuildSpec{config: Config{}})
 }
 
 func writeFile(t *testing.T, path string, mode os.FileMode, content string) {
@@ -184,7 +184,7 @@ func TestEvalActionDeleteFileRejections(t *testing.T) {
 func TestEvalActionAddCompilerFlags(t *testing.T) {
 	b := &Builder{}
 	s := expr.Scope{"arch": "amd64"}
-	spec := &buildSpec{config: Config{}}
+	spec := &BuildSpec{config: Config{}}
 
 	actions := []kernelfile.Actions{
 		{
@@ -220,7 +220,7 @@ func TestEvalActionAddCompilerFlagsRejections(t *testing.T) {
 	for _, flag := range []string{"", "-march=x86-64 -O2", "-DFOO=\tbar"} {
 		t.Run("flag="+flag, func(t *testing.T) {
 			b := &Builder{}
-			spec := &buildSpec{config: Config{}}
+			spec := &BuildSpec{config: Config{}}
 			err := b.evalAction(context.Background(), t.TempDir(), expr.Scope{}, &kernelfile.Action{
 				AddCompilerFlags: &kernelfile.AddCompilerFlags{Flags: []string{flag}},
 			}, t.TempDir(), spec)
