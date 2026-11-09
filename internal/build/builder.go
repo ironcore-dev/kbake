@@ -312,16 +312,22 @@ func (b *Builder) evalAction(_ context.Context, contextDir string, s expr.Scope,
 		name := s.Subst(a.DeleteConfig.Name)
 		delete(spec.config, name)
 		return nil
-	case a.AddCompilerFlags != nil:
+	case a.SetCompilerFlags != nil:
 		// CC is a single make variable that kbuild word-splits, so a flag
 		// containing whitespace would silently turn into several.
-		for _, flag := range a.AddCompilerFlags.Flags {
+		var flags []string
+		for _, flag := range a.SetCompilerFlags.Flags {
 			flag = s.Subst(flag)
-			if flag == "" || strings.ContainsFunc(flag, unicode.IsSpace) {
-				return fmt.Errorf("addCompilerFlags: invalid flag %q: must be non-empty and contain no whitespace", flag)
+			if flag == "" {
+				continue
 			}
-			spec.compilerFlags = append(spec.compilerFlags, flag)
+			if strings.ContainsFunc(flag, unicode.IsSpace) {
+				return fmt.Errorf("setCompilerFlags: invalid flag %q: must contain no whitespace", flag)
+			}
+			flags = append(flags, flag)
 		}
+		spec.compilerFlags = flags
+
 		return nil
 	default:
 		return fmt.Errorf("invalid action %#+v", a)
