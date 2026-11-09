@@ -72,10 +72,11 @@ type DeleteConfig struct {
 	Name string `json:"name"`
 }
 
-// AddCompilerFlags appends flags to the C compiler command (CC) of the
-// compile phase. Unlike KCFLAGS, flags in CC also reach the parts of the tree
-// that reset KBUILD_CFLAGS, e.g. the x86 EFI stub and decompressor.
-type AddCompilerFlags struct {
+// SetCompilerFlags sets the flags appended to the C compiler command (CC) of
+// the compile phase, replacing the flags of any earlier SetCompilerFlags.
+// Unlike KCFLAGS, flags in CC also reach the parts of the tree that reset
+// KBUILD_CFLAGS, e.g. the x86 EFI stub and decompressor.
+type SetCompilerFlags struct {
 	Flags []string `json:"flags"`
 }
 
@@ -85,7 +86,7 @@ type Action struct {
 	DeleteFile       *DeleteFile       `json:"deleteFile"`
 	SetConfig        *SetConfig        `json:"setConfig"`
 	DeleteConfig     *DeleteConfig     `json:"deleteConfig"`
-	AddCompilerFlags *AddCompilerFlags `json:"addCompilerFlags"`
+	SetCompilerFlags *SetCompilerFlags `json:"setCompilerFlags"`
 }
 
 type Actions struct {

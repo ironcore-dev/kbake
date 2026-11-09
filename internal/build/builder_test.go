@@ -181,7 +181,7 @@ func TestEvalActionDeleteFileRejections(t *testing.T) {
 	}
 }
 
-func TestEvalActionAddCompilerFlags(t *testing.T) {
+func TestEvalActionSetCompilerFlags(t *testing.T) {
 	b := &Builder{}
 	s := expr.Scope{"arch": "amd64"}
 	spec := &BuildSpec{config: Config{}}
@@ -190,14 +190,14 @@ func TestEvalActionAddCompilerFlags(t *testing.T) {
 		{
 			If: "${{ arch == 'amd64' }}",
 			Actions: []kernelfile.Action{
-				{AddCompilerFlags: &kernelfile.AddCompilerFlags{Flags: []string{"-march=x86-64"}}},
-				{AddCompilerFlags: &kernelfile.AddCompilerFlags{Flags: []string{"-DARCH_$arch", "-O2"}}},
+				{SetCompilerFlags: &kernelfile.SetCompilerFlags{Flags: []string{"-march=x86-64"}}},
+				{SetCompilerFlags: &kernelfile.SetCompilerFlags{Flags: []string{"-DARCH_$arch", "-O2"}}},
 			},
 		},
 		{
 			If: "${{ arch == 'arm64' }}",
 			Actions: []kernelfile.Action{
-				{AddCompilerFlags: &kernelfile.AddCompilerFlags{Flags: []string{"-mbranch-protection=none"}}},
+				{SetCompilerFlags: &kernelfile.SetCompilerFlags{Flags: []string{"-mbranch-protection=none"}}},
 			},
 		},
 	}
@@ -207,7 +207,7 @@ func TestEvalActionAddCompilerFlags(t *testing.T) {
 		}
 	}
 
-	want := []string{"-march=x86-64", "-DARCH_amd64", "-O2"}
+	want := []string{"-DARCH_amd64", "-O2"}
 	if !slices.Equal(spec.compilerFlags, want) {
 		t.Errorf("compilerFlags = %q, want %q", spec.compilerFlags, want)
 	}
@@ -216,19 +216,47 @@ func TestEvalActionAddCompilerFlags(t *testing.T) {
 	}
 }
 
-func TestEvalActionAddCompilerFlagsRejections(t *testing.T) {
-	for _, flag := range []string{"", "-march=x86-64 -O2", "-DFOO=\tbar"} {
+func TestEvalActionSetCompilerFlagsEmpty(t *testing.T) {
+	tests := []struct {
+		name  string
+		flags []string
+		want  []string
+	}{
+		{name: "empty flags are skipped", flags: []string{"", "-O2", "$empty"}, want: []string{"-O2"}},
+		{name: "only empty flags clear", flags: []string{"", "$empty"}, want: nil},
+		{name: "no flags clear", flags: nil, want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &Builder{}
+			spec := &BuildSpec{config: Config{}, compilerFlags: []string{"-O1"}}
+			err := b.evalAction(context.Background(), t.TempDir(), expr.Scope{"empty": ""}, &kernelfile.Action{
+				SetCompilerFlags: &kernelfile.SetCompilerFlags{Flags: tt.flags},
+			}, t.TempDir(), spec)
+			if err != nil {
+				t.Fatalf("evalAction: %v", err)
+			}
+			if !slices.Equal(spec.compilerFlags, tt.want) {
+				t.Errorf("compilerFlags = %q, want %q", spec.compilerFlags, tt.want)
+			}
+		})
+	}
+}
+
+func TestEvalActionSetCompilerFlagsRejections(t *testing.T) {
+	for _, flag := range []string{"-march=x86-64 -O2", "-DFOO=\tbar"} {
 		t.Run("flag="+flag, func(t *testing.T) {
 			b := &Builder{}
-			spec := &BuildSpec{config: Config{}}
+			spec := &BuildSpec{config: Config{}, compilerFlags: []string{"-O1"}}
+			// The valid flag before the invalid one must not be applied either.
 			err := b.evalAction(context.Background(), t.TempDir(), expr.Scope{}, &kernelfile.Action{
-				AddCompilerFlags: &kernelfile.AddCompilerFlags{Flags: []string{flag}},
+				SetCompilerFlags: &kernelfile.SetCompilerFlags{Flags: []string{"-O2", flag}},
 			}, t.TempDir(), spec)
 			if err == nil {
-				t.Errorf("addCompilerFlags flag=%q: expected error, got nil", flag)
+				t.Errorf("setCompilerFlags flag=%q: expected error, got nil", flag)
 			}
-			if len(spec.compilerFlags) != 0 {
-				t.Errorf("compilerFlags = %q, want empty after rejection", spec.compilerFlags)
+			if want := []string{"-O1"}; !slices.Equal(spec.compilerFlags, want) {
+				t.Errorf("compilerFlags = %q, want %q after rejection", spec.compilerFlags, want)
 			}
 		})
 	}
