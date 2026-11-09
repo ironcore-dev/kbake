@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
+	"unicode"
 
 	"github.com/ironcore-dev/kbake/internal/config"
 	"github.com/ironcore-dev/kbake/internal/expr"
@@ -33,6 +35,13 @@ import (
 )
 
 type Config map[string]string
+
+// BuildSpec is what evaluating a Kernelfile's actions yields for one arch.
+type BuildSpec struct {
+	config Config
+	// compilerFlags are appended to CC for the compile phase.
+	compilerFlags []string
+}
 
 type Builder struct {
 	keepWork  bool
@@ -231,7 +240,7 @@ func toConfigValue(kValue kernelfile.ConfigValue) (string, error) {
 	}
 }
 
-func (b *Builder) evalAction(_ context.Context, contextDir string, s expr.Scope, a *kernelfile.Action, dir string, cfg Config) error {
+func (b *Builder) evalAction(_ context.Context, contextDir string, s expr.Scope, a *kernelfile.Action, dir string, spec *BuildSpec) error {
 	if cond := a.If; cond != "" {
 		ok, err := expr.EvalBool(cond, s)
 		if err != nil {
@@ -297,18 +306,35 @@ func (b *Builder) evalAction(_ context.Context, contextDir string, s expr.Scope,
 		if err != nil {
 			return err
 		}
-		cfg[name] = v
+		spec.config[name] = v
 		return nil
 	case a.DeleteConfig != nil:
 		name := s.Subst(a.DeleteConfig.Name)
-		delete(cfg, name)
+		delete(spec.config, name)
+		return nil
+	case a.SetCompilerFlags != nil:
+		// CC is a single make variable that kbuild word-splits, so a flag
+		// containing whitespace would silently turn into several.
+		var flags []string
+		for _, flag := range a.SetCompilerFlags.Flags {
+			flag = s.Subst(flag)
+			if flag == "" {
+				continue
+			}
+			if strings.ContainsFunc(flag, unicode.IsSpace) {
+				return fmt.Errorf("setCompilerFlags: invalid flag %q: must contain no whitespace", flag)
+			}
+			flags = append(flags, flag)
+		}
+		spec.compilerFlags = flags
+
 		return nil
 	default:
 		return fmt.Errorf("invalid action %#+v", a)
 	}
 }
 
-func (b *Builder) evalActions(ctx context.Context, contextDir string, s expr.Scope, actions *kernelfile.Actions, dir string, cfg Config) error {
+func (b *Builder) evalActions(ctx context.Context, contextDir string, s expr.Scope, actions *kernelfile.Actions, dir string, spec *BuildSpec) error {
 	if cond := actions.If; cond != "" {
 		ok, err := expr.EvalBool(cond, s)
 		if err != nil {
@@ -320,7 +346,7 @@ func (b *Builder) evalActions(ctx context.Context, contextDir string, s expr.Sco
 	}
 
 	for i, action := range actions.Actions {
-		if err := b.evalAction(ctx, contextDir, s, &action, dir, cfg); err != nil {
+		if err := b.evalAction(ctx, contextDir, s, &action, dir, spec); err != nil {
 			return fmt.Errorf("[action %d] %w", i, err)
 		}
 	}
@@ -342,7 +368,7 @@ func (b *Builder) fetchGit(ctx context.Context, treeDir, gitRef string) error {
 	return nil
 }
 
-func (b *Builder) buildTree(ctx context.Context, f *kernelfile.Kernelfile, contextDir, arch, treeDir string) (Config, error) {
+func (b *Builder) buildTree(ctx context.Context, f *kernelfile.Kernelfile, contextDir, arch, treeDir string) (*BuildSpec, error) {
 	rep := progress.ReporterFromContext(ctx)
 
 	rep.Step("From")
@@ -364,11 +390,11 @@ func (b *Builder) buildTree(ctx context.Context, f *kernelfile.Kernelfile, conte
 	}
 
 	s := expr.Scope{"arch": arch}
-	buildCfg := make(Config)
+	spec := &BuildSpec{config: make(Config)}
 	rep.Step("Evaluate actions")
 	err = func() error {
 		for i, actions := range effectiveActions(f) {
-			if err := b.evalActions(ctx, contextDir, s, &actions, treeDir, buildCfg); err != nil {
+			if err := b.evalActions(ctx, contextDir, s, &actions, treeDir, spec); err != nil {
 				return fmt.Errorf("[effective action %d] %w", i, err)
 			}
 		}
@@ -379,10 +405,10 @@ func (b *Builder) buildTree(ctx context.Context, f *kernelfile.Kernelfile, conte
 		return nil, fmt.Errorf("evaluating actions: %w", err)
 	}
 
-	return buildCfg, nil
+	return spec, nil
 }
 
-func (b *Builder) make(ctx context.Context, arch, treeDir, outDir string, cfg Config) (kernelBinary, modules string, retErr error) {
+func (b *Builder) make(ctx context.Context, arch, treeDir, outDir string, spec *BuildSpec) (kernelBinary, modules string, retErr error) {
 	rep := progress.ReporterFromContext(ctx)
 
 	rep.Step(fmt.Sprintf("make %s", arch))
@@ -403,7 +429,7 @@ func (b *Builder) make(ctx context.Context, arch, treeDir, outDir string, cfg Co
 		return "", "", fmt.Errorf("read .config: %w", err)
 	}
 
-	for k, v := range cfg {
+	for k, v := range spec.config {
 		kCfg.Set(k, v)
 	}
 	if err := kCfg.Write(cfgPath); err != nil {
@@ -419,8 +445,9 @@ func (b *Builder) make(ctx context.Context, arch, treeDir, outDir string, cfg Co
 	// 4. build the kernel and modules.
 	rep.Detail("compile")
 	kernelBinary, err = b.makeRunner.Compile(ctx, treeDir, arch, CompileOptions{
-		NumJobs:   b.numJobs,
-		CCacheDir: b.ccacheDir,
+		NumJobs:       b.numJobs,
+		CCacheDir:     b.ccacheDir,
+		CompilerFlags: spec.compilerFlags,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("make: %w", err)
@@ -517,17 +544,17 @@ func (b *Builder) buildArch(ctx context.Context, f *kernelfile.Kernelfile, conte
 		}
 	}
 
-	cfg, err := b.buildTree(ctx, f, contextDir, arch, treeDir)
+	spec, err := b.buildTree(ctx, f, contextDir, arch, treeDir)
 	if err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("build tree: %w", err)
 	}
 
-	kernelBinary, modules, err := b.make(ctx, arch, treeDir, outDir, cfg)
+	kernelBinary, modules, err := b.make(ctx, arch, treeDir, outDir, spec)
 	if err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("make: %w", err)
 	}
 
-	desc, err := b.push(ctx, arch, dir, cfg, kernelBinary, modules)
+	desc, err := b.push(ctx, arch, dir, spec.config, kernelBinary, modules)
 	if err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("pushing: %w", err)
 	}
