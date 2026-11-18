@@ -170,3 +170,26 @@ func crossArch(t *testing.T) string {
 	t.Skip("no non-native arch available")
 	return ""
 }
+
+func TestCCValue(t *testing.T) {
+	tests := []struct {
+		name   string
+		prefix string
+		ccache bool
+		flags  []string
+		want   string
+	}{
+		{name: "default", want: ""},
+		{name: "ccache native", ccache: true, want: "ccache gcc"},
+		{name: "ccache cross", prefix: "x86_64-linux-gnu-", ccache: true, want: "ccache x86_64-linux-gnu-gcc"},
+		{name: "flags cross", prefix: "x86_64-linux-gnu-", flags: []string{"-march=x86-64"}, want: "x86_64-linux-gnu-gcc -march=x86-64"},
+		{name: "ccache and flags", ccache: true, flags: []string{"-march=x86-64", "-O2"}, want: "ccache gcc -march=x86-64 -O2"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ccValue(tc.prefix, tc.ccache, tc.flags); got != tc.want {
+				t.Errorf("ccValue(%q, %v, %q) = %q, want %q", tc.prefix, tc.ccache, tc.flags, got, tc.want)
+			}
+		})
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 
 	"github.com/ironcore-dev/kbake/internal/expr"
@@ -21,7 +22,7 @@ func evalAddFile(t *testing.T, contextDir, treeDir, src, dst string) error {
 	b := &Builder{}
 	return b.evalAction(context.Background(), contextDir, expr.Scope{}, &kernelfile.Action{
 		AddFile: &kernelfile.AddFile{Src: src, Dst: dst},
-	}, treeDir, Config{})
+	}, treeDir, &BuildSpec{Config: Config{}})
 }
 
 func evalDeleteFile(t *testing.T, treeDir, path string) error {
@@ -29,7 +30,7 @@ func evalDeleteFile(t *testing.T, treeDir, path string) error {
 	b := &Builder{}
 	return b.evalAction(context.Background(), t.TempDir(), expr.Scope{}, &kernelfile.Action{
 		DeleteFile: &kernelfile.DeleteFile{Path: path},
-	}, treeDir, Config{})
+	}, treeDir, &BuildSpec{Config: Config{}})
 }
 
 func writeFile(t *testing.T, path string, mode os.FileMode, content string) {
@@ -175,6 +176,68 @@ func TestEvalActionDeleteFileRejections(t *testing.T) {
 			// The tree itself must survive (empty path must not become RemoveAll(treeDir)).
 			if _, err := os.Stat(filepath.Join(treeDir, "keep.c")); err != nil {
 				t.Errorf("tree damaged by rejected deleteFile: %v", err)
+			}
+		})
+	}
+}
+
+func TestEvalActionSetCompilerFlags(t *testing.T) {
+	b := &Builder{}
+	s := expr.Scope{"arch": "amd64"}
+	spec := &BuildSpec{Config: Config{}}
+
+	actions := []kernelfile.Actions{
+		{
+			If: "${{ arch == 'amd64' }}",
+			Actions: []kernelfile.Action{
+				{SetCompilerFlags: &kernelfile.SetCompilerFlags{Flags: []string{"-march=x86-64"}}},
+				{SetCompilerFlags: &kernelfile.SetCompilerFlags{Flags: []string{"-DARCH_$arch", "-O2"}}},
+			},
+		},
+		{
+			If: "${{ arch == 'arm64' }}",
+			Actions: []kernelfile.Action{
+				{SetCompilerFlags: &kernelfile.SetCompilerFlags{Flags: []string{"-mbranch-protection=none"}}},
+			},
+		},
+	}
+	for i := range actions {
+		if err := b.evalActions(context.Background(), t.TempDir(), s, &actions[i], t.TempDir(), spec); err != nil {
+			t.Fatalf("evalActions[%d]: %v", i, err)
+		}
+	}
+
+	want := []string{"-DARCH_amd64", "-O2"}
+	if !slices.Equal(spec.CompilerFlags, want) {
+		t.Errorf("compilerFlags = %q, want %q", spec.CompilerFlags, want)
+	}
+	if len(spec.Config) != 0 {
+		t.Errorf("config = %v, want empty", spec.Config)
+	}
+}
+
+func TestEvalActionSetCompilerFlagsEmpty(t *testing.T) {
+	tests := []struct {
+		name  string
+		flags []string
+		want  []string
+	}{
+		{name: "empty flags are skipped", flags: []string{"", "-O2", "$empty"}, want: []string{"-O2"}},
+		{name: "only empty flags clear", flags: []string{"", "$empty"}, want: nil},
+		{name: "no flags clear", flags: nil, want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := &Builder{}
+			spec := &BuildSpec{Config: Config{}, CompilerFlags: []string{"-O1"}}
+			err := b.evalAction(context.Background(), t.TempDir(), expr.Scope{"empty": ""}, &kernelfile.Action{
+				SetCompilerFlags: &kernelfile.SetCompilerFlags{Flags: tt.flags},
+			}, t.TempDir(), spec)
+			if err != nil {
+				t.Fatalf("evalAction: %v", err)
+			}
+			if !slices.Equal(spec.CompilerFlags, tt.want) {
+				t.Errorf("compilerFlags = %q, want %q", spec.CompilerFlags, tt.want)
 			}
 		})
 	}
