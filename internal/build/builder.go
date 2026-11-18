@@ -13,8 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
-	"unicode"
 
 	"github.com/ironcore-dev/kbake/internal/config"
 	"github.com/ironcore-dev/kbake/internal/expr"
@@ -320,9 +318,6 @@ func (b *Builder) evalAction(_ context.Context, contextDir string, s expr.Scope,
 			flag = s.Subst(flag)
 			if flag == "" {
 				continue
-			}
-			if strings.ContainsFunc(flag, unicode.IsSpace) {
-				return fmt.Errorf("setCompilerFlags: invalid flag %q: must contain no whitespace", flag)
 			}
 			flags = append(flags, flag)
 		}

@@ -242,22 +242,3 @@ func TestEvalActionSetCompilerFlagsEmpty(t *testing.T) {
 		})
 	}
 }
-
-func TestEvalActionSetCompilerFlagsRejections(t *testing.T) {
-	for _, flag := range []string{"-march=x86-64 -O2", "-DFOO=\tbar"} {
-		t.Run("flag="+flag, func(t *testing.T) {
-			b := &Builder{}
-			spec := &BuildSpec{Config: Config{}, CompilerFlags: []string{"-O1"}}
-			// The valid flag before the invalid one must not be applied either.
-			err := b.evalAction(context.Background(), t.TempDir(), expr.Scope{}, &kernelfile.Action{
-				SetCompilerFlags: &kernelfile.SetCompilerFlags{Flags: []string{"-O2", flag}},
-			}, t.TempDir(), spec)
-			if err == nil {
-				t.Errorf("setCompilerFlags flag=%q: expected error, got nil", flag)
-			}
-			if want := []string{"-O1"}; !slices.Equal(spec.CompilerFlags, want) {
-				t.Errorf("compilerFlags = %q, want %q after rejection", spec.CompilerFlags, want)
-			}
-		})
-	}
-}
