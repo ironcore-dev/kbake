@@ -38,9 +38,9 @@ type Config map[string]string
 
 // BuildSpec is what evaluating a Kernelfile's actions yields for one arch.
 type BuildSpec struct {
-	config Config
-	// compilerFlags are appended to CC for the compile phase.
-	compilerFlags []string
+	Config Config
+	// CompilerFlags are appended to CC for the compile phase.
+	CompilerFlags []string
 }
 
 type Builder struct {
@@ -306,11 +306,11 @@ func (b *Builder) evalAction(_ context.Context, contextDir string, s expr.Scope,
 		if err != nil {
 			return err
 		}
-		spec.config[name] = v
+		spec.Config[name] = v
 		return nil
 	case a.DeleteConfig != nil:
 		name := s.Subst(a.DeleteConfig.Name)
-		delete(spec.config, name)
+		delete(spec.Config, name)
 		return nil
 	case a.SetCompilerFlags != nil:
 		// CC is a single make variable that kbuild word-splits, so a flag
@@ -326,7 +326,7 @@ func (b *Builder) evalAction(_ context.Context, contextDir string, s expr.Scope,
 			}
 			flags = append(flags, flag)
 		}
-		spec.compilerFlags = flags
+		spec.CompilerFlags = flags
 
 		return nil
 	default:
@@ -390,7 +390,7 @@ func (b *Builder) buildTree(ctx context.Context, f *kernelfile.Kernelfile, conte
 	}
 
 	s := expr.Scope{"arch": arch}
-	spec := &BuildSpec{config: make(Config)}
+	spec := &BuildSpec{Config: make(Config)}
 	rep.Step("Evaluate actions")
 	err = func() error {
 		for i, actions := range effectiveActions(f) {
@@ -429,7 +429,7 @@ func (b *Builder) make(ctx context.Context, arch, treeDir, outDir string, spec *
 		return "", "", fmt.Errorf("read .config: %w", err)
 	}
 
-	for k, v := range spec.config {
+	for k, v := range spec.Config {
 		kCfg.Set(k, v)
 	}
 	if err := kCfg.Write(cfgPath); err != nil {
@@ -447,7 +447,7 @@ func (b *Builder) make(ctx context.Context, arch, treeDir, outDir string, spec *
 	kernelBinary, err = b.makeRunner.Compile(ctx, treeDir, arch, CompileOptions{
 		NumJobs:       b.numJobs,
 		CCacheDir:     b.ccacheDir,
-		CompilerFlags: spec.compilerFlags,
+		CompilerFlags: spec.CompilerFlags,
 	})
 	if err != nil {
 		return "", "", fmt.Errorf("make: %w", err)
@@ -554,7 +554,7 @@ func (b *Builder) buildArch(ctx context.Context, f *kernelfile.Kernelfile, conte
 		return ocispec.Descriptor{}, fmt.Errorf("make: %w", err)
 	}
 
-	desc, err := b.push(ctx, arch, dir, spec.config, kernelBinary, modules)
+	desc, err := b.push(ctx, arch, dir, spec.Config, kernelBinary, modules)
 	if err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("pushing: %w", err)
 	}
